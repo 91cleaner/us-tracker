@@ -5,7 +5,7 @@ import shutil
 import sys
 
 # Prep-stage passcode gate + noindex. Set to False to make the site public again.
-SITE_GATE = True
+SITE_GATE = False
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / ".public-pages"
