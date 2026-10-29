@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Prepare a public-only Pages artifact. No source, workers, or private configuration."""
+from pathlib import Path
+import shutil
+import sys
+
+# Prep-stage passcode gate + noindex. Set to False to make the site public again.
+SITE_GATE = True
+
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / ".public-pages"
+PUBLIC_DIRS = ("assets", "data", "world-intelligence")
+# Private US trade datasets must never be shipped to public GitHub Pages.
+PRIVATE_DATA_FILES = {"data/us/trades.json", "data/us/house-ptr-candidates.json", "data/us/ptr-crosschecks.json"}
+# .geojson: national map country borders (polgame.js), .csv: trip downloads (national.js) — both are fetched by public pages
+PUBLIC_EXTENSIONS = {".html", ".css", ".js", ".json", ".geojson", ".csv", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".webmanifest", ".txt"}
+PUBLIC_ROOT_FILES = {".nojekyll"}
+EXCLUDED_PARTS = {"__pycache__", ".git", "private", "internal", "secrets", "credentials", "debug"}
+BLOCKED_NAMES = {".env", "wrangler.jsonc", "wrangler.toml"}
+BLOCKED_SUFFIXES = (".pem", ".key", ".p12", ".sqlite", ".db")
+if OUT.exists():
+    shutil.rmtree(OUT)
+OUT.mkdir()
+def safe(path):
+    if path.is_symlink():
+        return False
+    rel = path.relative_to(ROOT)
+    if rel.as_posix() in PRIVATE_DATA_FILES:
+        return False
+    if any(part.lower() in EXCLUDED_PARTS or part.lower().startswith(".") for part in rel.parts):
+        return rel.as_posix() in PUBLIC_ROOT_FILES
+    if path.name.lower() in BLOCKED_NAMES or path.suffix.lower() in BLOCKED_SUFFIXES:
+        return False
+    return path.suffix.lower() in PUBLIC_EXTENSIONS
+for child in ROOT.iterdir():
+    if child.is_file() and (child.name in PUBLIC_ROOT_FILES or (safe(child) and child.suffix.lower() in PUBLIC_EXTENSIONS)):
+        shutil.copy2(child, OUT / child.name)
+for dirname in PUBLIC_DIRS:
+    directory = ROOT / dirname
+    if not directory.exists():
+        continue
+    for src in directory.rglob("*"):
+        if not src.is_file() or not safe(src):
+            continue
+        rel = src.relative_to(ROOT)
+        target = OUT / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+# Trimmed public trade file built from the private ledger (decision #136: US trades are public).
+sys.path.insert(0, str(ROOT / "scripts"))
+from build_public_trades import build as build_public_trades
+build_public_trades(OUT / "data/us/trades_public.json")
+if SITE_GATE:
+    import re
+    (OUT / "robots.txt").write_text("User-agent: *\nDisallow: /\n")
+    for page in OUT.rglob("*.html"):
+        depth = len(page.relative_to(OUT).parts) - 1
+        src = "../" * depth + "assets/mt-gate.js"
+        tag = f'<meta name="robots" content="noindex,nofollow"><script src="{src}"></script>'
+        html = page.read_text(encoding="utf-8", errors="surrogateescape")
+        m = re.search(r"<head[^>]*>", html, re.I)
+        html = html[:m.end()] + tag + html[m.end():] if m else tag + html
+        page.write_text(html, encoding="utf-8", errors="surrogateescape")
+for required in ("index.html", "world-intelligence/index.html", "data/us/trades_public.json"):
+    if not (OUT / required).exists():
+        sys.exit(f"Missing required public file: {required}")
+for forbidden in ("cloudflare/admin-worker.js", "worker/private-api.js", "wrangler.jsonc", "collector/collect.py", ".github/workflows/deploy-pages.yml"):
+    if (OUT / forbidden).exists():
+        sys.exit(f"Private/source file in public artifact: {forbidden}")
+print(f"Prepared {sum(1 for x in OUT.rglob('*') if x.is_file())} public files in {OUT}")
