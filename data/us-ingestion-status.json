@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-11-03T06:11:25.940688+00:00",
+  "checked_at": "2026-11-04T06:16:11.686630+00:00",
   "macro_run": "success",
   "house_run": "success",
   "files_present": {
@@ -14,7 +14,7 @@
     },
     "us-house-filings.json": {
       "status": "present",
-      "records": 4791
+      "records": 4798
     },
     "us-events.json": {
       "status": "present",
